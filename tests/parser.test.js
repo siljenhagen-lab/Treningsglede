@@ -27,3 +27,33 @@ assert.strictEqual(Figures.guess('Bulgarsk utfall'), 'lunge');
 for (const { key } of Figures.list()) assert.ok(Figures.render(key).startsWith('<svg'), key);
 
 console.log('Alle tester OK');
+
+// Vektimport fra CSV (Libra-format)
+const WeightCsv = require('../js/csvimport.js');
+const libra = `#Version: 6
+#Units: kg
+
+#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log
+2021-05-01T07:40:00.000Z;105.5;105.2;;;;;coronavaksine 2. dose
+2021-01-25T07:51:00.000Z;107.0;107.1;;;;;
+2021-01-25T07:54:00.000Z;107.4;107.1;;;;;Midje 103 (under bryst). Hofte 130.
+2022-11-02T05:54:16.043588Z;108.1;108.3;;;;;
+2022-09-09T04:30:00.000Z;113.1;113.7;;;;;Måling=102,134,77
+2026-02-14T09:34:11.496Z;109.1;109.1;;;;;Variert mellom 108 og 112. Ny oppstart inositol.`;
+const parsed = WeightCsv.parse(libra);
+assert.strictEqual(parsed.rows.length, 6);
+const days = WeightCsv.byDay(parsed.rows, 'first');
+assert.strictEqual(days.length, 5);
+assert.strictEqual(days.find((d) => d.date === '2021-01-25').kg, 107.0);
+assert.strictEqual(WeightCsv.byDay(parsed.rows, 'avg').find((d) => d.date === '2021-01-25').kg, 107.2);
+assert.ok(days.some((d) => d.date === '2022-11-02'), 'mikrosekunder i tidsstempel');
+assert.deepStrictEqual(WeightCsv.suggestEvents(days).map((e) => e.label), ['coronavaksine 2. dose', 'Ny oppstart inositol']);
+const ms = WeightCsv.findMeasurements(days);
+assert.deepStrictEqual(ms[0].named, { waist: 103, hip: 130 });
+assert.deepStrictEqual(ms[1].values, [102, 134, 77]);
+const simple = WeightCsv.parse('Dato;Vekt\n24.10.2026;71,5\n25.10.2026;71.2');
+assert.strictEqual(simple.rows.length, 2);
+assert.strictEqual(simple.rows[0].kg, 71.5);
+assert.strictEqual(simple.rows[1].date, '2026-10-25');
+
+console.log('CSV-tester OK');

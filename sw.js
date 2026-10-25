@@ -1,7 +1,7 @@
 /* Enkel offline-støtte: nettverk først, med lagret kopi som reserve. */
-const CACHE = 'treningsglede-v1';
+const CACHE = 'treningsglede-v2';
 const ASSETS = [
-  './', 'index.html', 'css/style.css', 'js/parser.js', 'js/figures.js', 'js/store.js', 'js/charts.js', 'js/app.js',
+  './', 'index.html', 'css/style.css', 'js/parser.js', 'js/figures.js', 'js/store.js', 'js/charts.js', 'js/csvimport.js', 'js/app.js',
   'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
 ];
 

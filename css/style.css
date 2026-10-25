@@ -385,3 +385,19 @@ img.card-fig { padding: 0; object-fit: cover; }
   max-width: calc(100vw - 32px); font-size: .9rem;
 }
 @media (min-width: 760px) { .toast { bottom: 24px; } }
+
+/* ---------- CSV-import ---------- */
+.csv-list { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; margin-bottom: 8px; }
+.csv-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.csv-row input[type="text"], .csv-row input:not([type]) { min-height: 34px; padding: 4px 8px; }
+.csv-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.nowrap { white-space: nowrap; }
+.file-btn { cursor: pointer; }
+.modal-inner h3 { margin: 14px 0 6px; }
+.ch-tip { max-width: 240px; }
+
+.ch-event-num { fill: var(--surface); stroke-width: 1.5; }
+.ch-event-num-t { fill: var(--text-2); font-size: 8px; font-weight: 700; }
+.ch-legend-events { margin: 6px 8px 4px; padding-left: 22px; font-size: .8rem; color: var(--text-2); columns: 2 180px; column-gap: 16px; }
+.ch-legend-events li { break-inside: avoid; margin-bottom: 2px; }
+.meas-legend { margin: 0 0 8px; }

@@ -14,7 +14,17 @@ eller byggesteg. Alt lagres lokalt i nettleseren, og appen kan legges til på hj
 - **Vekt** – graf over vekt med hendelser (f.eks. oppstart/slutt på medisin) som loddrette linjer.
   Med sluttdato blir perioden skravert.
 - **Mål** – hofte, midje, lår og overarm, med én graf per mål og samme hendelser lagt over.
-- **Admin** – sikkerhetskopi (JSON) og import (slå sammen / erstatt), CSV-eksport av vekt og mål, sletting.
+- **Admin** – sikkerhetskopi (JSON) og import (slå sammen / erstatt), CSV-import og -eksport av vekt og mål, sletting.
+
+## Vektimport fra CSV
+
+Under **Vekt** («Importer fra CSV») eller **Admin**. Støtter eksport fra Libra (`#date;weight;…;log`) og enkle filer
+med en dato- og en vektkolonne (skilt med `;`, `,` eller tab; datoer som `2024-10-01`, `1.10.2024` eller ISO-tid).
+
+- Én verdi per dag – velg første (morgenvekt), siste eller snitt når det er flere veiinger samme dag.
+- Dager som allerede finnes i appen blir ikke endret, så en ny eksport kan importeres når som helst.
+- Notater fra loggen blir med. Notater som «Oppstart …», «vaksine», «slutt …» foreslås som hendelser i grafen.
+- Kroppsmål i notatene («Midje 103. Hofte 130.», «Måling=102,134,77») kan tas med som mål – du velger hva tallene betyr.
 
 ## Importformat for PT-programmer
 

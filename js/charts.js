@@ -56,7 +56,7 @@ const Charts = (() => {
   function line(container, opts) {
     const series = opts.series.map((s) => ({
       ...s,
-      pts: s.points.filter((p) => Number.isFinite(p.value)).map((p) => ({ t: toMs(p.date), v: p.value })).sort((a, b) => a.t - b.t),
+      pts: s.points.filter((p) => Number.isFinite(p.value)).map((p) => ({ t: toMs(p.date), v: p.value, note: p.note })).sort((a, b) => a.t - b.t),
     })).filter((s) => s.pts.length);
 
     container.innerHTML = '';
@@ -98,25 +98,49 @@ const Charts = (() => {
     }
 
     // Hendelser: perioder som skraverte bånd, start/slutt som loddrette linjer
-    const evs = (opts.events || []).map((e) => ({ ...e, t0: toMs(e.date), t1: e.end ? toMs(e.end) : null }));
-    let labelRow = 0;
-    for (const e of evs.sort((a, b) => a.t0 - b.t0)) {
+    const evs = (opts.events || []).map((e) => ({ ...e, t0: toMs(e.date), t1: e.end ? toMs(e.end) : null })).sort((a, b) => a.t0 - b.t0);
+    const inRange = (t) => t >= tMin && t <= tMax;
+    const shown = evs.filter((e) => inRange(e.t0));
+    // Prøv å få plass til navnene i to rader; ellers nummereres de med forklaring under grafen
+    const CHAR = 5.8;
+    const rowsEnd = [-Infinity, -Infinity];
+    const placed = [];
+    let fits = !opts.numbered;
+    for (const e of shown) {
+      const lx = x(e.t0);
+      const w = e.label.length * CHAR + 6;
+      const anchor = lx + w > width - 4 ? 'end' : 'start';
+      const x0 = anchor === 'start' ? lx : lx - w;
+      const row = rowsEnd.findIndex((end) => x0 > end + 4);
+      if (!fits) break;
+      if (row < 0 || x0 < 2) { fits = false; break; }
+      rowsEnd[row] = x0 + w;
+      placed.push({ e, lx, anchor, row });
+    }
+    for (const e of evs) {
       const color = e.color || 'var(--event)';
-      const inRange = (t) => t >= tMin && t <= tMax;
       if (e.t1) {
         const a = Math.max(tMin, e.t0), b = Math.min(tMax, e.t1);
         if (b > a) svg += `<rect class="ch-band" x="${x(a)}" y="${m.top}" width="${x(b) - x(a)}" height="${ih}" style="fill:${color}"/>`;
       }
-      if (inRange(e.t0)) {
-        svg += `<line class="ch-event" x1="${x(e.t0)}" x2="${x(e.t0)}" y1="${m.top}" y2="${m.top + ih}" style="stroke:${color}"/>`;
+      if (inRange(e.t0)) svg += `<line class="ch-event" x1="${x(e.t0)}" x2="${x(e.t0)}" y1="${m.top}" y2="${m.top + ih}" style="stroke:${color}"/>`;
+      if (e.t1 && inRange(e.t1)) svg += `<line class="ch-event ch-event-end" x1="${x(e.t1)}" x2="${x(e.t1)}" y1="${m.top}" y2="${m.top + ih}" style="stroke:${color}"/>`;
+    }
+    if (fits) {
+      for (const pl of placed) {
+        svg += `<text class="ch-event-label" x="${pl.lx + (pl.anchor === 'start' ? 4 : -4)}" y="${m.top - 14 + pl.row * 11}" text-anchor="${pl.anchor}">${esc(pl.e.label)}</text>`;
+      }
+    } else {
+      // Nummererte merker, forskjøvet i høyde når de ligger tett
+      let lastX = -Infinity, lift = 0;
+      shown.forEach((e, i) => {
         const lx = x(e.t0);
-        const anchor = lx > width - 90 ? 'end' : 'start';
-        svg += `<text class="ch-event-label" x="${lx + (anchor === 'start' ? 4 : -4)}" y="${m.top - 14 + (labelRow % 2) * 11}" text-anchor="${anchor}">${esc(e.label)}</text>`;
-        labelRow++;
-      }
-      if (e.t1 && inRange(e.t1)) {
-        svg += `<line class="ch-event ch-event-end" x1="${x(e.t1)}" x2="${x(e.t1)}" y1="${m.top}" y2="${m.top + ih}" style="stroke:${color}"/>`;
-      }
+        lift = lx - lastX < 15 ? (lift + 1) % 2 : 0;
+        lastX = lx;
+        const cy = m.top - 15 + lift * 11 + 5;
+        svg += `<circle class="ch-event-num" cx="${lx}" cy="${cy}" r="5.5" style="stroke:${e.color || 'var(--event)'}"/>`;
+        svg += `<text class="ch-event-num-t" x="${lx}" y="${cy + 3}" text-anchor="middle">${e.num || i + 1}</text>`;
+      });
     }
 
     // Linjer og punkter
@@ -138,6 +162,21 @@ const Charts = (() => {
     svg += `<rect class="ch-hit" x="${m.left}" y="${m.top}" width="${iw}" height="${ih}" fill="transparent"/>`;
     svg += '</svg>';
     container.insertAdjacentHTML('beforeend', svg);
+    if (!fits && shown.length && opts.eventLegend !== false) {
+      const ol = document.createElement('ol');
+      ol.className = 'ch-legend-events';
+      for (const e of shown) {
+        const li = document.createElement('li');
+        const label = document.createElement('span');
+        label.textContent = e.label;
+        const date = document.createElement('span');
+        date.className = 'muted';
+        date.textContent = ` ${fmtDate(e.t0)}${e.t1 ? ' – ' + fmtDate(e.t1) : ''}`;
+        li.append(label, date);
+        ol.appendChild(li);
+      }
+      container.appendChild(ol);
+    }
 
     // Hover / trykk
     const svgEl = container.querySelector('svg');
@@ -176,6 +215,12 @@ const Charts = (() => {
         name.className = 'muted'; name.textContent = series.length > 1 ? s.name : '';
         row.append(key, val, name);
         tip.appendChild(row);
+        if (p.note) {
+          const n = document.createElement('div');
+          n.className = 'ch-tip-event';
+          n.textContent = p.note;
+          tip.appendChild(n);
+        }
       }
       for (const e of evs) {
         if (best >= e.t0 && (e.t1 ? best <= e.t1 : Math.abs(best - e.t0) < DAY)) {

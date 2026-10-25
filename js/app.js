@@ -43,6 +43,11 @@
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
     return d.toISOString().slice(0, 10);
   };
+  const shiftDate = (iso, days) => {
+    const d = new Date(iso + 'T12:00:00');
+    d.setDate(d.getDate() + days);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
   const go = (hash) => { location.hash = hash; };
   const plannedText = (it) => {
     const parts = [];
@@ -148,6 +153,13 @@
   window.addEventListener('resize', () => {
     clearTimeout(resizeT);
     resizeT = setTimeout(() => document.querySelectorAll('[data-chart]').forEach((el) => drawChart(el.dataset.chart, el)), 200);
+  });
+
+  document.addEventListener('change', async (e) => {
+    if (!e.target.classList || !e.target.classList.contains('csv-weight')) return;
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) openCsvImport(await file.text());
   });
 
   // ---------- handlinger (delegert) ----------
@@ -948,18 +960,23 @@
     const ws = [...D().weights].sort(Store.byDate);
     const last = ws[ws.length - 1];
     const first = ws[0];
-    const ref30 = [...ws].reverse().find((w) => w.date <= daysAgo(30));
+    // Endring over 30 dager regnes bakover fra siste veiing, ikke fra i dag
+    // (og bare hvis det finnes en veiing 30–60 dager før, ellers blir tallet misvisende)
+    const ref30 = last ? [...ws].reverse().find((w) => w.date <= shiftDate(last.date, -30) && w.date >= shiftDate(last.date, -60)) : null;
     const events = [...D().events].sort(Store.byDate);
     view.innerHTML = `
-      <header class="view-head"><h1>Vekt</h1></header>
+      <header class="view-head"><h1>Vekt</h1>
+        <label class="btn small file-btn">Importer fra CSV <input type="file" class="csv-weight" accept=".csv,.txt,text/csv,text/plain" hidden></label>
+      </header>
       <form id="w-form" class="inline-form">
         <label>Dato <input type="date" name="date" value="${Store.today()}" required></label>
         <label>Vekt (kg) <input name="kg" inputmode="decimal" required placeholder="${last ? fmtNum(last.kg) : '70,0'}"></label>
         <button class="btn primary">Lagre</button>
       </form>
       <div class="tiles">
-        <div class="tile"><span class="tile-label">Nå</span><span class="tile-value">${last ? fmtNum(last.kg) : '–'}<small> kg</small></span></div>
-        <div class="tile"><span class="tile-label">Siste 30 dager</span><span class="tile-value">${last && ref30 ? signed(last.kg - ref30.kg, 'kg') : '–'}</span></div>
+        <div class="tile"><span class="tile-label">Nå</span><span class="tile-value">${last ? fmtNum(last.kg) : '–'}<small> kg</small></span>
+          ${last && last.date < daysAgo(7) ? `<span class="tile-sub muted small">sist veid ${fmtDate(last.date)}</span>` : ''}</div>
+        <div class="tile"><span class="tile-label">Endring 30 dager</span><span class="tile-value">${last && ref30 ? signed(last.kg - ref30.kg, 'kg') : '–'}</span></div>
         <div class="tile"><span class="tile-label">Siden start</span><span class="tile-value">${last && first && first !== last ? signed(last.kg - first.kg, 'kg') : '–'}</span></div>
       </div>
       ${rangeButtons(ui.weightRange, 'w-range')}
@@ -986,7 +1003,7 @@
         <summary><h2>Alle registreringer (${ws.length})</h2></summary>
         <table class="table">
           <thead><tr><th>Dato</th><th>Kg</th><th></th></tr></thead>
-          <tbody>${[...ws].reverse().map((w) => `<tr><td>${fmtDate(w.date)}</td><td>${fmtNum(w.kg)}</td><td class="right"><button class="icon-btn" data-act="w-del" data-id="${w.id}" aria-label="Slett">✕</button></td></tr>`).join('')}</tbody>
+          <tbody>${[...ws].reverse().map((w) => `<tr><td>${fmtDate(w.date)}</td><td>${fmtNum(w.kg)}${w.note ? `<div class="muted small">${esc(w.note)}</div>` : ''}</td><td class="right"><button class="icon-btn" data-act="w-del" data-id="${w.id}" aria-label="Slett">✕</button></td></tr>`).join('')}</tbody>
         </table>
       </details>`;
 
@@ -1082,6 +1099,7 @@
           <label class="chip"><input type="checkbox" id="m-events" ${ui.measEvents ? 'checked' : ''}>Hendelser</label>
         </div>
       </div>
+      ${ui.measEvents && D().events.length ? `<ol class="ch-legend-events meas-legend">${numberedEvents().map((e) => `<li>${esc(e.label)} <span class="muted">${fmtDate(e.date)}${e.end ? ` – ${fmtDate(e.end)}` : ''}</span></li>`).join('')}</ol>` : ''}
       <div class="multiples">
         ${MEASURES.filter((m) => ui.measShow[m.key]).map((m) => `<div><h3 class="chart-title"><span class="ch-key" style="background:${m.color}"></span>${m.label}</h3><div data-chart="meas:${m.key}"></div></div>`).join('')}
       </div>
@@ -1130,6 +1148,11 @@
     renderMeasurements();
   };
 
+  // Faste nummer for hendelser, så de er like i alle små grafer på Mål-fanen
+  function numberedEvents() {
+    return [...D().events].sort(Store.byDate).map((e, i) => ({ date: e.date, end: e.end, label: e.label, color: eventColor(e.color), num: i + 1 }));
+  }
+
   function chartEvents(from) {
     return D().events
       .filter((e) => !from || (e.end || e.date) >= from)
@@ -1140,7 +1163,7 @@
     if (!el) return;
     if (kind === 'weight') {
       const from = rangeFrom(ui.weightRange);
-      const pts = D().weights.filter((w) => !from || w.date >= from).map((w) => ({ date: w.date, value: w.kg }));
+      const pts = D().weights.filter((w) => !from || w.date >= from).map((w) => ({ date: w.date, value: w.kg, note: w.note }));
       Charts.line(el, { label: 'Vektutvikling', unit: 'kg', from: pts.length ? from : null, series: [{ name: 'Vekt', color: 'var(--series-1)', points: pts }], events: chartEvents(from) });
     } else if (kind.startsWith('meas:')) {
       // Ett lite diagram per mål: de ligger på svært ulike nivåer (overarm ~30 cm, hofte ~100 cm)
@@ -1150,7 +1173,7 @@
       Charts.line(el, {
         label: m.label, unit: 'cm', height: 190,
         series: [{ name: m.label, color: m.color, points: rows.map((r) => ({ date: r.date, value: r[m.key] })) }],
-        events: ui.measEvents ? chartEvents(from) : [],
+        events: ui.measEvents ? numberedEvents() : [], numbered: true, eventLegend: false,
       });
     } else if (kind.startsWith('ex:')) {
       const id = kind.slice(3);
@@ -1188,6 +1211,11 @@
           <button class="btn primary">Importer</button>
         </form>
         <p class="small"><a href="#/programmer" data-act="import-pt">Importer et PT-program fra tekst →</a></p>
+      </section>
+      <section class="card pad">
+        <h2>Importer vekt fra CSV</h2>
+        <p class="muted small">Fra vekt-apper som Libra, eller en egen fil med dato og vekt. Du får se alt før noe lagres, og dager du allerede har registrert blir ikke endret – så du kan trygt importere en ny eksport senere.</p>
+        <label class="file-label">Velg CSV-fil <input type="file" class="csv-weight" accept=".csv,.txt,text/csv,text/plain"></label>
       </section>
       <section class="card pad">
         <h2>Oversikt</h2>
@@ -1230,6 +1258,117 @@
       }
       renderAdmin();
     });
+  }
+
+  /* ----- vektimport fra CSV ----- */
+  function openCsvImport(text) {
+    const parsed = WeightCsv.parse(text);
+    if (!parsed.rows.length) return alert('Fant ingen vektmålinger i filen. Den må ha en kolonne med dato og en med vekt.');
+    const opt = { mode: 'first', notes: true, map: ['waist', 'hip', 'thigh', 'arm'] };
+    const have = new Set(D().weights.map((w) => w.date));
+    const labelOf = (k) => (MEASURES.find((m) => m.key === k) || {}).label;
+    let days = [], events = [], meas = [];
+
+    const draw = () => {
+      days = WeightCsv.byDay(parsed.rows, opt.mode);
+      const fresh = days.filter((d) => !have.has(d.date));
+      const multi = days.filter((d) => d.count > 1).length;
+      const haveEv = new Set(D().events.map((e) => `${e.date}|${e.label.toLowerCase()}`));
+      events = WeightCsv.suggestEvents(days).filter((e) => !haveEv.has(`${e.date}|${e.label.toLowerCase()}`));
+      meas = WeightCsv.findMeasurements(days);
+      const usesList = meas.some((m) => m.values.length);
+      const maxVals = Math.max(0, ...meas.map((m) => m.values.length));
+      document.getElementById('csv-body').innerHTML = `
+        <div class="tiles">
+          <div class="tile"><span class="tile-label">Målinger i filen</span><span class="tile-value">${parsed.rows.length}</span></div>
+          <div class="tile"><span class="tile-label">Nye dager</span><span class="tile-value">${fresh.length}</span></div>
+          <div class="tile"><span class="tile-label">Finnes fra før</span><span class="tile-value">${days.length - fresh.length}</span></div>
+        </div>
+        <p class="small">Periode: <strong>${fmtDate(days[0].date)} – ${fmtDate(days[days.length - 1].date)}</strong>${parsed.unit.startsWith('lb') ? ' · omregnet fra pund' : ''}${parsed.skipped ? ` · ${parsed.skipped} linjer uten gyldig dato/vekt hoppes over` : ''}</p>
+        ${multi ? `<label>Flere veiinger samme dag (${multi} dager)
+          <select id="csv-mode">
+            <option value="first" ${opt.mode === 'first' ? 'selected' : ''}>Bruk den første (morgenvekt)</option>
+            <option value="last" ${opt.mode === 'last' ? 'selected' : ''}>Bruk den siste</option>
+            <option value="avg" ${opt.mode === 'avg' ? 'selected' : ''}>Bruk gjennomsnittet</option>
+          </select></label>` : ''}
+        <label class="chip"><input type="checkbox" id="csv-notes" ${opt.notes ? 'checked' : ''}> Ta med notater fra loggen</label>
+        ${events.length ? `<h3>Hendelser</h3>
+          <p class="muted small">Notater som ser ut som oppstart/slutt kan vises som linjer i grafene. Rett navnet eller fjern haken.</p>
+          <div class="csv-list">${events.map((e, i) => `
+            <div class="csv-row"><input type="checkbox" class="csv-ev" data-i="${i}" checked aria-label="Ta med">
+              <span class="muted small nowrap">${fmtDate(e.date)}</span>
+              <input class="csv-ev-label grow" data-i="${i}" value="${esc(e.label)}" aria-label="Navn på hendelse"></div>`).join('')}</div>` : ''}
+        ${meas.length ? `<h3>Kroppsmål i notatene</h3>
+          ${usesList ? `<p class="muted small">Notater som «Måling=102,134,77» – velg hva tallene betyr, i rekkefølge:</p>
+            <div class="csv-map">${Array.from({ length: maxVals }, (_, i) => `<label>Tall ${i + 1}
+              <select class="csv-map-sel" data-i="${i}"><option value="">Ignorer</option>${MEASURES.map((m) => `<option value="${m.key}" ${opt.map[i] === m.key ? 'selected' : ''}>${m.label}</option>`).join('')}</select></label>`).join('')}</div>` : ''}
+          <div class="csv-list">${meas.map((m, i) => {
+            const v = measValues(m, opt.map);
+            return `<div class="csv-row"><input type="checkbox" class="csv-meas" data-i="${i}" checked aria-label="Ta med">
+              <span class="muted small nowrap">${fmtDate(m.date)}</span>
+              <span class="grow small">${Object.entries(v).map(([k, x]) => `${labelOf(k)} ${fmtNum(x)}`).join(' · ') || '<span class="muted">–</span>'}
+              <span class="muted"> («${esc(m.text)}»)</span></span></div>`;
+          }).join('')}</div>` : ''}`;
+      const sel = document.getElementById('csv-mode');
+      if (sel) sel.onchange = () => { opt.mode = sel.value; draw(); };
+      document.getElementById('csv-notes').onchange = (e) => { opt.notes = e.target.checked; };
+      document.querySelectorAll('.csv-map-sel').forEach((el) => (el.onchange = () => { opt.map[+el.dataset.i] = el.value; draw(); }));
+      document.getElementById('csv-ok').textContent = `Importer ${fresh.length} dager`;
+    };
+
+    openModal(`
+      <h2>Importer vekt fra CSV</h2>
+      <div id="csv-body"></div>
+      <div class="modal-actions">
+        <button class="btn" data-act="close-modal">Avbryt</button>
+        <button class="btn primary" id="csv-ok">Importer</button>
+      </div>`, () => {
+      draw();
+      document.getElementById('csv-ok').onclick = () => {
+        let nW = 0, nE = 0, nM = 0;
+        for (const d of days) {
+          if (have.has(d.date)) continue;
+          const w = { id: Store.uid(), date: d.date, kg: d.kg };
+          if (opt.notes && d.note) w.note = d.note;
+          D().weights.push(w);
+          nW++;
+        }
+        document.querySelectorAll('.csv-ev').forEach((cb) => {
+          if (!cb.checked) return;
+          const e = events[+cb.dataset.i];
+          const label = document.querySelector(`.csv-ev-label[data-i="${cb.dataset.i}"]`).value.trim();
+          if (!label) return;
+          D().events.push({ id: Store.uid(), label, date: e.date, end: '', color: 'gray' });
+          nE++;
+        });
+        document.querySelectorAll('.csv-meas').forEach((cb) => {
+          if (!cb.checked) return;
+          const m = meas[+cb.dataset.i];
+          const v = measValues(m, opt.map);
+          if (!Object.keys(v).length) return;
+          const same = D().measurements.find((r) => r.date === m.date);
+          if (same) {
+            // Fyll bare inn mål som mangler – overskriv aldri det som er registrert i appen
+            let added = false;
+            for (const [k, x] of Object.entries(v)) if (!Number.isFinite(same[k])) { same[k] = x; added = true; }
+            if (added) nM++;
+          } else {
+            D().measurements.push({ id: Store.uid(), date: m.date, ...v });
+            nM++;
+          }
+        });
+        if (!Store.save()) return;
+        closeModal();
+        toast(`La til ${nW} vektregistreringer, ${nE} hendelser og ${nM} målinger`);
+        route();
+      };
+    });
+  }
+
+  function measValues(m, map) {
+    const v = { ...m.named };
+    m.values.forEach((x, i) => { if (map[i] && x !== null && v[map[i]] === undefined) v[map[i]] = x; });
+    return v;
   }
 
   actions['export'] = () => {
