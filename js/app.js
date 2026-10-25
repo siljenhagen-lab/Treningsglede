@@ -18,6 +18,8 @@
     { key: '3m', label: '3 mnd', days: 92 },
     { key: '6m', label: '6 mnd', days: 183 },
     { key: '1y', label: '1 år', days: 366 },
+    { key: '2y', label: '2 år', days: 731 },
+    { key: '3y', label: '3 år', days: 1096 },
     { key: 'all', label: 'Alt', days: null },
   ];
 
