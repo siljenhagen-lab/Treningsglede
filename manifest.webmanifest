@@ -1,0 +1,16 @@
+{
+  "name": "Treningsglede",
+  "short_name": "Treningsglede",
+  "description": "Min personlige treningsapp – programmer, øvelser, vekt og mål.",
+  "lang": "nb",
+  "start_url": "./#/programmer",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f3f0",
+  "theme_color": "#2a78d6",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
