@@ -136,6 +136,7 @@
     });
     closeModal();
     window.scrollTo(0, 0);
+    runMigrations();
     switch (tab) {
       case 'programmer':
         if (id === 'ny') return renderProgramEdit(null);
@@ -802,6 +803,7 @@
         </div>
         <div class="actions">
           <button class="btn" data-act="edit-ex" data-id="${ex.id}">Rediger</button>
+          <button class="btn" data-act="merge-ex" data-id="${ex.id}">Slå sammen</button>
           <button class="btn danger" data-act="del-ex" data-id="${ex.id}">Slett</button>
         </div>
       </header>
@@ -857,6 +859,43 @@
       return alert('Du har en påbegynt programøkt. Fullfør eller forkast den først (under Programmer).');
     }
     go('#/okt/fri');
+  };
+
+  /* Slå andre øvelser inn i denne (f.eks. varianter med ulikt grep) */
+  actions['merge-ex'] = (el) => {
+    const target = Store.exercise(el.dataset.id);
+    const words = target.name.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+    const others = D().exercises.filter((e) => e.id !== target.id)
+      .map((e) => ({ e, similar: words.some((w) => e.name.toLowerCase().includes(w)) }))
+      .sort((a, b) => b.similar - a.similar || a.e.name.localeCompare(b.e.name, 'nb'));
+    openModal(`
+      <h2>Slå sammen med «${esc(target.name)}»</h2>
+      <p class="muted small">Velg øvelser som skal slås inn i «${esc(target.name)}». Historikk og programmer flyttes over, og de valgte øvelsene fjernes fra øvelsesbanken.</p>
+      <input id="merge-q" type="search" placeholder="Søk" autocomplete="off">
+      <div id="merge-list" class="pick-list">${others.map(({ e, similar }) => `
+        <label class="pick-row" data-name="${esc(e.name.toLowerCase())}"><input type="checkbox" value="${e.id}">
+          ${Figures.forExercise(e, { cls: 'thumb' })}<span>${esc(e.name)} <span class="muted small">${usageCount(e.id)} økter${similar ? ' · ligner' : ''}</span></span></label>`).join('')}</div>
+      <label class="chip"><input type="checkbox" id="merge-label" checked> Behold variantnavnet i notatet (f.eks. «Bredt grep»)</label>
+      <div class="modal-actions">
+        <button class="btn" data-act="close-modal">Avbryt</button>
+        <button class="btn primary" id="merge-ok">Slå sammen</button>
+      </div>`, () => {
+      const q = document.getElementById('merge-q');
+      q.addEventListener('input', () => {
+        const n = q.value.trim().toLowerCase();
+        document.querySelectorAll('#merge-list .pick-row').forEach((r) => (r.hidden = !!n && !r.dataset.name.includes(n)));
+      });
+      document.getElementById('merge-ok').onclick = () => {
+        const ids = [...document.querySelectorAll('#merge-list input:checked')].map((c) => c.value);
+        if (!ids.length) return alert('Velg minst én øvelse.');
+        const names = ids.map((id) => Store.exercise(id).name).join(', ');
+        if (!confirm(`Slå ${names} inn i «${target.name}»? Dette kan ikke angres (men du har sikkerhetskopien).`)) return;
+        const moved = Store.mergeExercises(target.id, ids, { keepLabel: document.getElementById('merge-label').checked });
+        closeModal();
+        toast(`Slo sammen ${ids.length} øvelser – ${moved} loggede sett-grupper flyttet`);
+        route();
+      };
+    });
   };
 
   actions['new-ex'] = () => openExerciseForm(null);
@@ -1396,6 +1435,32 @@
 
   function notFound() {
     view.innerHTML = '<div class="empty"><h2>Fant ikke siden</h2><p><a href="#/programmer">Til programmer</a></p></div>';
+  }
+
+  /* Engangsendringer i dataene, kjøres én gang per enhet */
+  function runMigrations() {
+    const meta = D().meta;
+    const done = new Set(meta.migrations || []);
+    const run = (id, fn) => {
+      if (done.has(id)) return;
+      if (fn() === false) return; // ikke aktuelt ennå (f.eks. før data er importert) – prøv igjen senere
+      done.add(id);
+      meta.migrations = [...done];
+      Store.save();
+    };
+    // Okt. 2026: alle nedtrekk (unntatt ettarms) samles i «Nedtrekk», grepet beholdes i notatet
+    run('2026-10-nedtrekk', () => {
+      const target = D().exercises.find((e) => e.name.toLowerCase() === 'nedtrekk');
+      if (!target) return false;
+      const ids = D().exercises
+        .filter((e) => e.id !== target.id && /^nedtrekk\b/i.test(e.name) && !/ettarm|en arm/i.test(e.name))
+        .map((e) => e.id);
+      if (ids.length) Store.mergeExercises(target.id, ids);
+    });
+    run('2026-10-bulgarske-utfall', () => {
+      if (Store.findExerciseByName('Bulgarske utfall')) return;
+      Store.addExercise({ name: 'Bulgarske utfall', category: 'Bein', figure: 'lunge', muscles: 'Knedominant (unilateral)', equipment: 'Benk, manualer' });
+    });
   }
 
   route();

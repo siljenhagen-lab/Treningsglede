@@ -139,6 +139,22 @@ const Store = (() => {
   /* Slår sammen: legger til elementer med id-er som ikke finnes fra før */
   function merge(newData) {
     const incoming = normalize(newData);
+    // Øvelser som er slått sammen tidligere skal ikke komme tilbake; referanser flyttes til den nye
+    const merged = data.meta.mergedExercises || {};
+    const redirect = (id) => {
+      let m = merged[id], label = '', guard = 0;
+      while (m && guard++ < 10) { label = label || m.label; id = m.to; m = merged[id]; }
+      return { id, label };
+    };
+    incoming.exercises = incoming.exercises.filter((e) => e && !merged[e.id]);
+    const fix = (obj) => {
+      if (!merged[obj.exerciseId]) return;
+      const r = redirect(obj.exerciseId);
+      obj.exerciseId = r.id;
+      obj.note = withNote(r.label, obj.note);
+    };
+    for (const p of incoming.programs) for (const it of (p && p.items) || []) fix(it);
+    for (const l of incoming.logs) for (const e of (l && l.entries) || []) fix(e);
     const counts = {};
     for (const k of ['exercises', 'programs', 'logs', 'weights', 'events', 'measurements']) {
       const ids = new Set(data[k].map((x) => x.id));
@@ -188,6 +204,55 @@ const Store = (() => {
     }
   }
 
+  /* Gjør "Nedtrekk bredt grep" om til "Bredt grep" når den slås inn i "Nedtrekk" */
+  function variantLabel(oldName, targetName) {
+    const o = oldName.trim(), t = targetName.trim();
+    let rest = o.toLowerCase().startsWith(t.toLowerCase()) ? o.slice(t.length) : o;
+    rest = rest.replace(/^[\s\-–,:/]+/, '').trim();
+    return rest ? rest[0].toUpperCase() + rest.slice(1) : '';
+  }
+  const withNote = (label, note) => (label ? (note ? `${label} · ${note}` : label) : note || '');
+
+  /* Slår øvelsene i sourceIds inn i targetId: historikk og programmer flyttes over,
+   * og navnet på den gamle varianten (f.eks. grep) legges i notatet så det ikke går tapt. */
+  function mergeExercises(targetId, sourceIds, opts = {}) {
+    const target = exercise(targetId);
+    const keepLabel = opts.keepLabel !== false;
+    let moved = 0;
+    for (const sid of sourceIds) {
+      const src = exercise(sid);
+      if (!src || sid === targetId) continue;
+      const label = keepLabel ? variantLabel(src.name, target.name) : '';
+      for (const log of data.logs) {
+        for (const e of log.entries || []) {
+          if (e.exerciseId === sid) { e.exerciseId = targetId; e.note = withNote(label, e.note); moved++; }
+        }
+      }
+      for (const p of data.programs) {
+        for (const it of p.items || []) {
+          if (it.exerciseId === sid) { it.exerciseId = targetId; it.note = withNote(label, it.note); }
+        }
+      }
+      const draft = getDraft();
+      if (draft && (draft.entries || []).some((e) => e.exerciseId === sid)) {
+        for (const e of draft.entries) if (e.exerciseId === sid) e.exerciseId = targetId;
+        setDraft(draft);
+      }
+      target.rating = Math.max(target.rating || 0, src.rating || 0);
+      for (const f of ['description', 'notes']) {
+        if (src[f] && !(target[f] || '').includes(src[f])) target[f] = [target[f], src[f]].filter(Boolean).join('\n\n');
+      }
+      const sources = new Set([target.source, src.source].filter(Boolean).flatMap((s) => s.split(', ')));
+      target.source = [...sources].join(', ');
+      if (!target.image && src.image) target.image = src.image;
+      data.exercises = data.exercises.filter((e) => e.id !== sid);
+      // Husk sammenslåingen, så en senere import av en gammel fil ikke henter øvelsen tilbake
+      data.meta.mergedExercises = { ...(data.meta.mergedExercises || {}), [sid]: { to: targetId, label } };
+    }
+    save();
+    return moved;
+  }
+
   function sizeKb() {
     try {
       return Math.round((localStorage.getItem(KEY) || '').length / 1024);
@@ -200,7 +265,7 @@ const Store = (() => {
     get data() { return data; },
     save, uid, today, byDate, num, est1RM,
     exercise, findExerciseByName, addExercise, historyFor, lastEntryFor, entryStats,
-    replaceAll, merge, validate, exportJson, markBackup, clearAll,
+    replaceAll, merge, mergeExercises, validate, exportJson, markBackup, clearAll,
     getDraft, setDraft, sizeKb,
   };
 })();
