@@ -401,3 +401,10 @@ img.card-fig { padding: 0; object-fit: cover; }
 .ch-legend-events { margin: 6px 8px 4px; padding-left: 22px; font-size: .8rem; color: var(--text-2); columns: 2 180px; column-gap: 16px; }
 .ch-legend-events li { break-inside: avoid; margin-bottom: 2px; }
 .meas-legend { margin: 0 0 8px; }
+
+/* ---------- utvalg av øvelser ---------- */
+.pick-filters { margin: 8px 0 0; }
+.pick-filters select { flex: 1 1 100px; min-width: 0; font-size: .85rem; padding: 6px 8px; }
+.pick-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pick-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pick-meta .star { font-size: .8rem; }

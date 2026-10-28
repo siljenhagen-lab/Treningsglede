@@ -26,7 +26,8 @@
   const view = document.getElementById('view');
   const D = () => Store.data;
   const ui = {
-    exSearch: '', exCat: '', exSort: 'name',
+    exSearch: '', exCat: '', exSort: 'name', exStars: '',
+    pick: { q: '', cat: '', stars: '', sort: 'rating' },
     weightRange: '6m', measRange: 'all',
     measShow: { hip: true, waist: true, thigh: true, arm: true }, measEvents: true,
   };
@@ -427,41 +428,84 @@
     });
   };
 
+  /* Felles filter for øvelsesbanken og utvalget når man bygger program.
+   * stars: '' = alle, '5'…'1' = minst så mange stjerner, '0' = uten score */
+  const STAR_FILTERS = [
+    ['', 'Alle scorer'], ['5', '★★★★★'], ['4', '★★★★ og mer'], ['3', '★★★ og mer'],
+    ['2', '★★ og mer'], ['1', '★ og mer'], ['0', 'Uten score'],
+  ];
+  function filterExercises(f) {
+    const n = (f.q || '').trim().toLowerCase();
+    const used = new Map(D().exercises.map((e) => [e.id, usageCount(e.id)]));
+    const list = D().exercises.filter((e) =>
+      (!f.cat || e.category === f.cat) &&
+      (f.stars === '' || f.stars === undefined ? true : f.stars === '0' ? !e.rating : (e.rating || 0) >= +f.stars) &&
+      (!n || [e.name, e.category, e.muscles, e.equipment, e.source].some((v) => (v || '').toLowerCase().includes(n))));
+    const byName = (a, b) => a.name.localeCompare(b.name, 'nb');
+    list.sort((a, b) =>
+      f.sort === 'rating' ? (b.rating || 0) - (a.rating || 0) || byName(a, b)
+        : f.sort === 'used' ? used.get(b.id) - used.get(a.id) || byName(a, b)
+          : byName(a, b));
+    return { list, used };
+  }
+  const STAR_SHORT = { '': 'Alle ★', 5: '5 ★', 4: '4+ ★', 3: '3+ ★', 2: '2+ ★', 1: '1+ ★', 0: 'Uten ★' };
+  // compact: kortere tekster så tre menyer får plass på én linje i utvalgsvinduet
+  const filterSelects = (f, idp, compact = false) => `
+    <select id="${idp}-cat" aria-label="Kroppsdel/kategori"><option value="">${compact ? 'Alle deler' : 'Alle kategorier'}</option>${CATEGORIES.map((c) => `<option ${c === f.cat ? 'selected' : ''}>${c}</option>`).join('')}</select>
+    <select id="${idp}-stars" aria-label="Score">${STAR_FILTERS.map(([v, l]) => `<option value="${v}" ${v === f.stars ? 'selected' : ''}>${compact ? STAR_SHORT[v] : l}</option>`).join('')}</select>
+    <select id="${idp}-sort" aria-label="Sortering">
+      <option value="name" ${f.sort === 'name' ? 'selected' : ''}>${compact ? 'A–Å' : 'Sorter: navn'}</option>
+      <option value="rating" ${f.sort === 'rating' ? 'selected' : ''}>${compact ? 'Score' : 'Sorter: score'}</option>
+      <option value="used" ${f.sort === 'used' ? 'selected' : ''}>${compact ? 'Mest brukt' : 'Sorter: mest brukt'}</option>
+    </select>`;
+
   /* Velg øvelser fra banken (flervalg) */
   function openPicker(onDone) {
     const chosen = new Set();
-    const draw = (q = '') => {
-      const n = q.trim().toLowerCase();
-      const list = [...D().exercises]
-        .filter((e) => !n || e.name.toLowerCase().includes(n) || (e.category || '').toLowerCase().includes(n))
-        .sort((a, b) => a.name.localeCompare(b.name, 'nb'));
+    const f = ui.pick;
+    const draw = () => {
+      const q = f.q.trim();
+      const { list, used } = filterExercises(f);
+      const filtered = f.cat || f.stars !== '';
       document.getElementById('pick-list').innerHTML = list.map((e) => `
         <label class="pick-row"><input type="checkbox" value="${e.id}" ${chosen.has(e.id) ? 'checked' : ''}>
-          ${Figures.forExercise(e, { cls: 'thumb' })}<span>${esc(e.name)} <span class="muted small">${esc(e.category || '')}</span></span></label>`).join('') +
-        (n && !list.some((e) => e.name.toLowerCase() === n) ? `<button type="button" class="btn" id="pick-new">+ Opprett «${esc(q.trim())}»</button>` : '') +
-        (!D().exercises.length && !n ? '<p class="muted">Øvelsesbanken er tom. Skriv et navn over for å opprette en øvelse.</p>' : '');
+          ${Figures.forExercise(e, { cls: 'thumb' })}
+          <span class="pick-text">${esc(e.name)}
+            <span class="pick-meta">${stars(e.rating)} <span class="muted small">${esc(e.category || '')}${used.get(e.id) ? ` · ${used.get(e.id)} økter` : ''}</span></span></span></label>`).join('') +
+        (!list.length && D().exercises.length ? `<p class="muted">Ingen øvelser passer${filtered ? ' – prøv å fjerne et filter' : ''}.</p>` : '') +
+        (q && !D().exercises.some((e) => e.name.toLowerCase() === q.toLowerCase()) ? `<button type="button" class="btn" id="pick-new">+ Opprett «${esc(q)}»</button>` : '') +
+        (!D().exercises.length && !q ? '<p class="muted">Øvelsesbanken er tom. Skriv et navn over for å opprette en øvelse.</p>' : '');
       const nb = document.getElementById('pick-new');
       if (nb) nb.onclick = () => {
-        const ex = Store.addExercise({ name: q.trim() });
+        const ex = Store.addExercise({ name: q });
         Store.save();
         chosen.add(ex.id);
+        f.q = '';
         document.getElementById('pick-q').value = '';
-        draw('');
+        draw();
       };
+      updateOk();
+    };
+    const updateOk = () => {
+      document.getElementById('pick-ok').textContent = chosen.size ? `Legg til ${chosen.size}` : 'Legg til';
     };
     openModal(`
       <h2>Velg øvelser</h2>
-      <input id="pick-q" type="search" placeholder="Søk eller skriv navn på ny øvelse" autocomplete="off">
+      <input id="pick-q" type="search" placeholder="Søk eller skriv navn på ny øvelse" autocomplete="off" value="${esc(f.q)}">
+      <div class="filters pick-filters">${filterSelects(f, 'pick', true)}</div>
       <div id="pick-list" class="pick-list"></div>
       <div class="modal-actions">
         <button class="btn" data-act="close-modal">Avbryt</button>
         <button class="btn primary" id="pick-ok">Legg til</button>
       </div>`, () => {
       draw();
-      const q = document.getElementById('pick-q');
-      q.addEventListener('input', () => draw(q.value));
+      document.getElementById('pick-q').addEventListener('input', (e) => { f.q = e.target.value; draw(); });
+      for (const k of ['cat', 'stars', 'sort']) {
+        document.getElementById(`pick-${k}`).addEventListener('change', (e) => { f[k] = e.target.value; draw(); });
+      }
       document.getElementById('pick-list').addEventListener('change', (e) => {
         if (e.target.type === 'checkbox') e.target.checked ? chosen.add(e.target.value) : chosen.delete(e.target.value);
+        updateOk();
       });
       document.getElementById('pick-ok').onclick = () => { closeModal(); onDone([...chosen]); };
     });
@@ -752,24 +796,11 @@
       </header>
       <div class="filters">
         <input type="search" id="ex-q" placeholder="Søk" value="${esc(ui.exSearch)}" aria-label="Søk i øvelser">
-        <select id="ex-cat" aria-label="Kategori"><option value="">Alle kategorier</option>${CATEGORIES.map((c) => `<option ${c === ui.exCat ? 'selected' : ''}>${c}</option>`).join('')}</select>
-        <select id="ex-sort" aria-label="Sortering">
-          <option value="name" ${ui.exSort === 'name' ? 'selected' : ''}>Navn</option>
-          <option value="rating" ${ui.exSort === 'rating' ? 'selected' : ''}>Score</option>
-          <option value="used" ${ui.exSort === 'used' ? 'selected' : ''}>Mest brukt</option>
-        </select>
+        ${filterSelects({ cat: ui.exCat, stars: ui.exStars, sort: ui.exSort }, 'ex')}
       </div>
       <div id="ex-list" class="grid"></div>`;
     const draw = () => {
-      const n = ui.exSearch.trim().toLowerCase();
-      let list = D().exercises.filter((e) =>
-        (!ui.exCat || e.category === ui.exCat) &&
-        (!n || [e.name, e.muscles, e.equipment, e.source].some((v) => (v || '').toLowerCase().includes(n))));
-      const used = new Map(list.map((e) => [e.id, usageCount(e.id)]));
-      list.sort((a, b) =>
-        ui.exSort === 'rating' ? (b.rating || 0) - (a.rating || 0) || a.name.localeCompare(b.name, 'nb')
-          : ui.exSort === 'used' ? used.get(b.id) - used.get(a.id) || a.name.localeCompare(b.name, 'nb')
-            : a.name.localeCompare(b.name, 'nb'));
+      const { list, used } = filterExercises({ q: ui.exSearch, cat: ui.exCat, stars: ui.exStars, sort: ui.exSort });
       document.getElementById('ex-list').innerHTML = list.length ? list.map((e) => `
         <a class="card ex-card" href="#/ovelser/${e.id}">
           ${Figures.forExercise(e, { cls: 'card-fig' })}
@@ -784,6 +815,7 @@
     document.getElementById('ex-q').addEventListener('input', (e) => { ui.exSearch = e.target.value; draw(); });
     document.getElementById('ex-cat').addEventListener('change', (e) => { ui.exCat = e.target.value; draw(); });
     document.getElementById('ex-sort').addEventListener('change', (e) => { ui.exSort = e.target.value; draw(); });
+    document.getElementById('ex-stars').addEventListener('change', (e) => { ui.exStars = e.target.value; draw(); });
   }
 
   function renderExercise(id) {
